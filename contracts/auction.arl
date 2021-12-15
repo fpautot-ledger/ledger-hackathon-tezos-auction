@@ -4,7 +4,7 @@ archetype auction(
   dur_incr    : duration
 )
 
-asset sales identified by token_id token_contract {
+asset sales identified by token_id token_contract to big_map {
   token_id      : nat;
   token_contract     : address;
   owner      : address;
@@ -56,7 +56,7 @@ entry list_nft (atoken_id : nat, atoken_contract: address, aprice : tez) {
     });
     transfer 0tz to atoken_contract
           call %transfer<list<address * list<transfer_destination>>>(
-            get_transfer_param(sales[(atoken_id, atoken_contract)].owner, selfaddress, atoken_id));
+            get_transfer_param(caller, selfaddress, atoken_id));
   }
 }
 
@@ -122,15 +122,12 @@ entry claim (atoken_id : nat, atoken_contract: address) {
     r4 otherwise "Auction Is Still On" : sales[(atoken_id, atoken_contract)].endofbid < now
   }
   effect {
-    transfer 0tz to atoken_contract
-      call update_operators<list<or<operator_param, operator_param>>>(
-        get_rmop_param(sales[(atoken_id, atoken_contract)].owner, selfaddress, atoken_id));
     match sales[(atoken_id, atoken_contract)].bestbidder with
     | none -> ()
     | some bidder -> begin
         transfer 0tz to atoken_contract
           call %transfer<list<address * list<transfer_destination>>>(
-            get_transfer_param(sales[(atoken_id, atoken_contract)].owner, bidder, atoken_id));
+            get_transfer_param(selfaddress, bidder, atoken_id));
         transfer sales[(atoken_id, atoken_contract)].best to sales[(atoken_id, atoken_contract)].owner;
       end
     end;

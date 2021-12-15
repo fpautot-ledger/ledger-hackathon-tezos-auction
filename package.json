@@ -4,8 +4,7 @@
     "description": "Tezos Auction contract templates",
     "main": "index.js",
     "scripts": {
-        "test": "make -C contracts clean all && mocha *.js --timeout 0 --slow 50000",
-        "test-multiple-fa2-public": "mocha ./tests/multiple-nft-fa2-public-tests.js --timeout 0 --slow 50000 --reporter mochawesome"
+        "test": "mocha ./tests/auction-tests.js --timeout 0 --slow 50000 --reporter mochawesome"
     },
     "author": "",
     "license": "ISC",
