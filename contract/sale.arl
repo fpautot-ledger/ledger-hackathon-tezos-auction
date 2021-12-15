@@ -1,0 +1,139 @@
+
+archetype auction(
+  auction_dur : duration,
+  dur_incr    : duration
+)
+
+asset sales identified by token_id token_contract {
+  token_id      : nat;
+  token_contract     : address;
+  owner      : address;
+  bestbidder : option<address>;
+  best       : tez;
+  endofbid   : date;
+}
+
+record operator_param {
+  opp_owner    : address;
+  opp_operator : address;
+  opp_token_id : nat
+} as ((owner, (operator, token_id)))
+
+record balance_of_request {
+  bo_owner : address;
+  btoken_id : nat;
+} as ((owner, token_id))
+
+record balance_of_response {
+  request : balance_of_request;
+  balance_ : nat;
+} as ((request, balance))
+
+function get_addop_param(
+  powner : address,
+  popp   : address,
+  pid    : nat
+) : list<or<operator_param, operator_param>> {
+  return ([
+    left<operator_param>({
+      opp_owner    = powner;
+      opp_operator = popp;
+      opp_token_id = pid
+    })
+  ])
+}
+
+entry list_nft (atoken_id : nat, atoken_contract: address, aprice : tez) {
+  require {
+    r1: if sales.contains((atoken_id, atoken_contract)) then sales[(atoken_id, atoken_contract)].endofbid < now else true
+  }
+  effect {
+    sales.addupdate((atoken_id, atoken_contract), {
+      owner      = caller;
+      bestbidder = none;
+      best       = aprice;
+      endofbid   = (now + auction_dur)
+    });
+    transfer 0tz to atoken_contract
+          call %transfer<list<address * list<transfer_destination>>>(
+            get_transfer_param(sales[(atoken_id, atoken_contract)].owner, selfaddress, atoken_id));
+  }
+}
+
+entry bid (atoken_id : nat, atoken_contract: address) {
+  require {
+    r2 otherwise "No Auction"   : now < sales[(atoken_id, atoken_contract)].endofbid;
+    r3 otherwise "Not Best Bid" :
+      if issome(sales[(atoken_id, atoken_contract)].bestbidder)
+      then transferred >  sales[(atoken_id, atoken_contract)].best
+      else transferred >= sales[(atoken_id, atoken_contract)].best;
+  }
+  effect {
+    match sales[(atoken_id, atoken_contract)].bestbidder with
+    | none -> ()
+    | some bidder -> transfer sales[(atoken_id, atoken_contract)].best to bidder
+    end;
+    sales.update((atoken_id, atoken_contract), {
+      bestbidder = some(caller);
+      best       = transferred;
+      endofbid  +=
+        (if sales[(atoken_id, atoken_contract)].endofbid - now < dur_incr
+         then dur_incr
+         else 0s)
+    })
+  }
+}
+
+record transfer_destination {
+  to_dest           : address;
+  token_id_dest     : nat;
+  token_amount_dest : nat
+} as ((to_, (token_id, amount)))
+
+function get_transfer_param(
+  %from : address,
+  %to   : address,
+  id    : nat) : list<address * list<transfer_destination>> {
+  return ([
+    (%from, [{
+      to_dest           = %to;
+      token_id_dest     = id;
+      token_amount_dest = 1
+    }])
+  ])
+}
+
+function get_rmop_param(
+  powner : address,
+  popp   : address,
+  pid    : nat
+) : list<or<operator_param, operator_param>> {
+  return ([
+    right<operator_param>({
+      opp_owner    = powner;
+      opp_operator = popp;
+      opp_token_id = pid
+    })
+  ])
+}
+
+entry claim (atoken_id : nat, atoken_contract: address) {
+  require {
+    r4 otherwise "Auction Is Still On" : sales[(atoken_id, atoken_contract)].endofbid < now
+  }
+  effect {
+    transfer 0tz to atoken_contract
+      call update_operators<list<or<operator_param, operator_param>>>(
+        get_rmop_param(sales[(atoken_id, atoken_contract)].owner, selfaddress, atoken_id));
+    match sales[(atoken_id, atoken_contract)].bestbidder with
+    | none -> ()
+    | some bidder -> begin
+        transfer 0tz to atoken_contract
+          call %transfer<list<address * list<transfer_destination>>>(
+            get_transfer_param(sales[(atoken_id, atoken_contract)].owner, bidder, atoken_id));
+        transfer sales[(atoken_id, atoken_contract)].best to sales[(atoken_id, atoken_contract)].owner;
+      end
+    end;
+    sales.remove((atoken_id, atoken_contract));
+  }
+}
